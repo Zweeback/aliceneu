@@ -1,0 +1,31 @@
+name: Alice MVP CI
+
+on:
+  push:
+    branches: [main, mvp/alice-greenfield]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npm install
+      - name: Build
+        run: npm run build
+      - name: Verify camera is absent
+        run: |
+          if grep -RInE "getUserMedia\([^)]*video|video:[[:space:]]*true|CameraPresence" src; then
+            echo "Camera usage detected" >&2
+            exit 1
+          fi
