@@ -54,12 +54,24 @@ jobs:
 
             const response = await page.goto('http://127.0.0.1:4173', { waitUntil: 'domcontentloaded' });
             diagnostics.push(`navigation: ${response?.status() || 'no-response'} ${response?.url() || ''}`);
-            await page.waitForTimeout(3000);
+
+            const status = page.locator('.status-pill');
+            await status.waitFor({ state: 'visible', timeout: 10000 });
+            let statusText = '';
+            const deadline = Date.now() + 60000;
+            while (Date.now() < deadline) {
+              statusText = (await status.innerText().catch(() => '')).trim();
+              if (statusText && !statusText.startsWith('Alice wird geladen')) break;
+              await page.waitForTimeout(1000);
+            }
 
             const body = await page.locator('body').innerText().catch(() => '');
             const rootHtml = await page.locator('#root').innerHTML().catch(() => '<missing-root>');
+            const canvasCount = await page.locator('canvas').count();
+            diagnostics.push(`status: ${statusText}`);
             diagnostics.push(`bodyTextLength: ${body.length}`);
             diagnostics.push(`rootHtmlLength: ${rootHtml.length}`);
+            diagnostics.push(`canvasCount: ${canvasCount}`);
             diagnostics.push(`rootHtml: ${rootHtml.slice(0, 4000)}`);
 
             await page.screenshot({ path: 'artifacts/alice-runtime.png', fullPage: true });
@@ -67,8 +79,13 @@ jobs:
             console.log(diagnostics.join('\n'));
             await browser.close();
 
-            if (!body.trim()) {
-              throw new Error('Runtime rendered an empty body; see browser-diagnostics.txt');
+            if (!body.trim()) throw new Error('Runtime rendered an empty body');
+            if (!canvasCount) throw new Error('Three.js canvas missing');
+            if (!statusText || statusText.startsWith('Alice wird geladen')) {
+              throw new Error(`Alice model did not reach terminal state within 60s: ${statusText || '<empty>'}`);
+            }
+            if (!statusText.startsWith('Alice online')) {
+              throw new Error(`Alice model failed to load: ${statusText}`);
             }
           })();
           NODE
