@@ -39,12 +39,21 @@ export default function App() {
     camera.position.set(0, 0.45, 4.8);
     camera.lookAt(0, 0.25, 0);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    mount.appendChild(renderer.domElement);
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      mount.appendChild(renderer.domElement);
+    } catch (err) {
+      const message = err?.message || String(err) || 'WebGL konnte nicht initialisiert werden';
+      setLoaded(false);
+      setError(`Renderer: ${message}`);
+      setStatus('Alice Renderer nicht verfügbar');
+      return undefined;
+    }
 
     const hemi = new THREE.HemisphereLight('#d6e7ff', '#17100d', 1.6);
     scene.add(hemi);
