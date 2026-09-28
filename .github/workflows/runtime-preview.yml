@@ -1,0 +1,64 @@
+name: Alice Runtime Preview
+
+on:
+  push:
+    branches: [mvp/alice-greenfield]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Build
+        run: npm run build
+      - name: Start preview
+        run: |
+          npm run preview -- --port 4173 > preview.log 2>&1 &
+          echo $! > preview.pid
+      - name: Wait for preview
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:4173 >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat preview.log
+          exit 1
+      - name: Capture runtime screenshot
+        run: |
+          mkdir -p artifacts
+          npx playwright screenshot --browser=chromium --viewport-size="1440,900" http://127.0.0.1:4173 artifacts/alice-runtime.png
+      - name: Runtime DOM smoke
+        run: |
+          node - <<'NODE'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+            await page.goto('http://127.0.0.1:4173', { waitUntil: 'networkidle' });
+            const body = await page.locator('body').innerText();
+            if (!body.trim()) throw new Error('Runtime rendered an empty body');
+            console.log(body.slice(0, 800));
+            await browser.close();
+          })();
+          NODE
+      - name: Upload runtime proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alice-runtime-proof
+          path: |
+            artifacts/alice-runtime.png
+            preview.log
+          if-no-files-found: warn
