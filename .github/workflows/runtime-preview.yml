@@ -35,22 +35,41 @@ jobs:
           done
           cat preview.log
           exit 1
-      - name: Capture runtime screenshot
+      - name: Browser runtime diagnostics
         run: |
           mkdir -p artifacts
-          npx playwright screenshot --browser=chromium --viewport-size="1440,900" http://127.0.0.1:4173 artifacts/alice-runtime.png
-      - name: Runtime DOM smoke
-        run: |
           node - <<'NODE'
+          const fs = require('fs');
           const { chromium } = require('playwright');
           (async () => {
-            const browser = await chromium.launch({ headless: true });
+            const diagnostics = [];
+            const browser = await chromium.launch({
+              headless: true,
+              args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'],
+            });
             const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-            await page.goto('http://127.0.0.1:4173', { waitUntil: 'networkidle' });
-            const body = await page.locator('body').innerText();
-            if (!body.trim()) throw new Error('Runtime rendered an empty body');
-            console.log(body.slice(0, 800));
+            page.on('console', (msg) => diagnostics.push(`console.${msg.type()}: ${msg.text()}`));
+            page.on('pageerror', (err) => diagnostics.push(`pageerror: ${err.stack || err.message}`));
+            page.on('requestfailed', (req) => diagnostics.push(`requestfailed: ${req.url()} :: ${req.failure()?.errorText || 'unknown'}`));
+
+            const response = await page.goto('http://127.0.0.1:4173', { waitUntil: 'domcontentloaded' });
+            diagnostics.push(`navigation: ${response?.status() || 'no-response'} ${response?.url() || ''}`);
+            await page.waitForTimeout(3000);
+
+            const body = await page.locator('body').innerText().catch(() => '');
+            const rootHtml = await page.locator('#root').innerHTML().catch(() => '<missing-root>');
+            diagnostics.push(`bodyTextLength: ${body.length}`);
+            diagnostics.push(`rootHtmlLength: ${rootHtml.length}`);
+            diagnostics.push(`rootHtml: ${rootHtml.slice(0, 4000)}`);
+
+            await page.screenshot({ path: 'artifacts/alice-runtime.png', fullPage: true });
+            fs.writeFileSync('artifacts/browser-diagnostics.txt', diagnostics.join('\n'));
+            console.log(diagnostics.join('\n'));
             await browser.close();
+
+            if (!body.trim()) {
+              throw new Error('Runtime rendered an empty body; see browser-diagnostics.txt');
+            }
           })();
           NODE
       - name: Upload runtime proof
@@ -60,5 +79,6 @@ jobs:
           name: alice-runtime-proof
           path: |
             artifacts/alice-runtime.png
+            artifacts/browser-diagnostics.txt
             preview.log
           if-no-files-found: warn
